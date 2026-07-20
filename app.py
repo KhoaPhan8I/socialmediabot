@@ -15,8 +15,10 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# Stripe config (test mode)
+# Payment config
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY', 'sk_test_placeholder')
+BMAC_USERNAME = os.getenv('BMAC_USERNAME', 'khoaphan')
+PAYPAL_EMAIL = os.getenv('PAYPAL_EMAIL', '')
 
 # In-memory storage (replace with DB in production)
 users = {}
@@ -68,7 +70,7 @@ LANDING_PAGE = """
                         <li>Basic analytics</li>
                         <li>Email support</li>
                     </ul>
-                    <button class="btn" style="width:100%">Get Started</button>
+                    <a href="/pay/starter" class="btn" style="width:100%; text-decoration:none; display:block; text-align:center;">Get Started</a>
                 </div>
                 <div class="price-card featured">
                     <h3>Pro</h3>
@@ -80,7 +82,7 @@ LANDING_PAGE = """
                         <li>Advanced analytics</li>
                         <li>Priority support</li>
                     </ul>
-                    <button class="btn" style="width:100%">Get Started</button>
+                    <a href="/pay/pro" class="btn" style="width:100%; text-decoration:none; display:block; text-align:center;">Get Started</a>
                 </div>
                 <div class="price-card">
                     <h3>Business</h3>
@@ -92,7 +94,7 @@ LANDING_PAGE = """
                         <li>API access</li>
                         <li>Dedicated support</li>
                     </ul>
-                    <button class="btn" style="width:100%">Contact Us</button>
+                    <a href="/pay/business" class="btn" style="width:100%; text-decoration:none; display:block; text-align:center;">Contact Us</a>
                 </div>
             </div>
         </div>
@@ -112,6 +114,112 @@ LANDING_PAGE = """
             <p>Track engagement, followers, and growth across all platforms in one beautiful dashboard.</p>
         </div>
     </div>
+</body>
+</html>
+"""
+
+# Payment Page HTML
+PAYMENT_PAGE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - SocialMediaBot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .checkout { max-width: 500px; width: 100%; padding: 2rem; }
+        .plan-info { background: #1a1a1a; padding: 2rem; border-radius: 12px; margin-bottom: 2rem; text-align: center; }
+        .plan-info h2 { color: #667eea; margin-bottom: 0.5rem; }
+        .plan-info .price { font-size: 3rem; font-weight: bold; margin: 1rem 0; }
+        .plan-info .price span { font-size: 1rem; color: #888; }
+        .payment-methods { display: flex; flex-direction: column; gap: 1rem; }
+        .payment-btn { display: flex; align-items: center; justify-content: center; gap: 0.8rem; padding: 1.2rem; border: 2px solid #333; border-radius: 12px; background: #1a1a1a; color: #fff; font-size: 1.1rem; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+        .payment-btn:hover { border-color: #667eea; transform: translateY(-2px); }
+        .payment-btn.stripe { background: linear-gradient(135deg, #635bff 0%, #7a73ff 100%); border-color: #635bff; }
+        .payment-btn.bmac { background: linear-gradient(135deg, #ffdd00 0%, #ffaa00 100%); border-color: #ffdd00; color: #000; }
+        .payment-btn.paypal { background: linear-gradient(135deg, #0070ba 0%, #003087 100%); border-color: #0070ba; }
+        .payment-btn.crypto { background: linear-gradient(135deg, #f7931a 0%, #e8850a 100%); border-color: #f7931a; }
+        .icon { font-size: 1.5rem; }
+        .badge { font-size: 0.7rem; background: rgba(255,255,255,0.2); padding: 0.2rem 0.5rem; border-radius: 4px; }
+        .divider { text-align: center; margin: 1.5rem 0; color: #666; }
+        .features { text-align: left; margin-top: 1.5rem; }
+        .features li { padding: 0.5rem 0; color: #aaa; list-style: none; }
+        .features li::before { content: "✓ "; color: #667eea; }
+        .back { text-align: center; margin-top: 2rem; }
+        .back a { color: #667eea; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="checkout">
+        <div class="plan-info">
+            <h2>{{ plan.name }} Plan</h2>
+            <div class="price">${{ plan.price }}<span>/month</span></div>
+            <ul class="features">
+                {% for f in plan.features %}
+                <li>{{ f }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        
+        <h3 style="text-align: center; margin-bottom: 1rem; color: #888;">Choose Payment Method</h3>
+        
+        <div class="payment-methods">
+            <!-- Buy Me a Coffee (Recommended) -->
+            <a href="https://www.buymeacoffee.com/e/{{ bmac_username }}?amount={{ plan.price }}" 
+               target="_blank" class="payment-btn bmac">
+                <span class="icon">☕</span>
+                Buy Me a Coffee
+                <span class="badge">RECOMMENDED</span>
+            </a>
+            
+            <!-- Stripe (Credit/Debit Card) -->
+            <button onclick="payStripe()" class="payment-btn stripe">
+                <span class="icon">💳</span>
+                Credit/Debit Card
+                <span class="badge">STRIPE</span>
+            </button>
+            
+            <!-- PayPal -->
+            <a href="https://paypal.me/khoaphan/{{ plan.price }}?currencyCode=USD" 
+               target="_blank" class="payment-btn paypal">
+                <span class="icon">🅿️</span>
+                PayPal
+            </a>
+            
+            <!-- Crypto (USDT) -->
+            <button onclick="payCrypto()" class="payment-btn crypto">
+                <span class="icon">₿</span>
+                Crypto (USDT/BTC)
+                <span class="badge">COMING SOON</span>
+            </button>
+        </div>
+        
+        <div class="back">
+            <a href="/">← Back to Home</a>
+        </div>
+    </div>
+    
+    <script>
+        function payStripe() {
+            fetch('/api/create-checkout', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({plan: '{{ plan.name|lower }}', price: {{ plan.price }}})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.url) window.location.href = data.url;
+                else alert('Stripe not configured yet. Use Buy Me a Coffee!');
+            })
+            .catch(() => alert('Stripe not configured. Use Buy Me a Coffee!'));
+        }
+        
+        function payCrypto() {
+            alert('Crypto payments coming soon! Use Buy Me a Coffee or PayPal for now.');
+        }
+    </script>
 </body>
 </html>
 """
@@ -248,6 +356,17 @@ DASHBOARD_PAGE = """
 @app.route('/')
 def landing():
     return render_template_string(LANDING_PAGE)
+
+@app.route('/pay/<plan>')
+def payment_page(plan):
+    """Multi-payment checkout page"""
+    plans = {
+        'starter': {'name': 'Starter', 'price': 19, 'features': ['3 social accounts', '30 posts/month', 'Basic analytics']},
+        'pro': {'name': 'Pro', 'price': 49, 'features': ['10 social accounts', 'Unlimited posts', 'AI content generation']},
+        'business': {'name': 'Business', 'price': 99, 'features': ['Unlimited accounts', 'API access', 'White-label']}
+    }
+    p = plans.get(plan, plans['pro'])
+    return render_template_string(PAYMENT_PAGE, plan=p, bmac_username=BMAC_USERNAME)
 
 @app.route('/dashboard')
 def dashboard():
